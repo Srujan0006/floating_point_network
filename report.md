@@ -22,40 +22,41 @@ Ordering is by FP32 bit pattern with sign-magnitude rules (-0 < +0). NaN is not 
 |---|---|---|
 | Plain Verilog testbench, 3005 vectors vs numpy | 0 errors (reported by author) | local, not re-run in this session |
 | Cycle counts over those vectors | 1012 sign, 722 exponent, 1271 mantissa | local, not re-run in this session |
-| cocotb test (`test/test.py`): directed corners + 300 random, checks order and cycle count | **not run yet** | will run in the `test` workflow |
-| Real Tiny Tapeout flow (gds, docs) | **not run yet** | GitHub Actions |
+| cocotb test (`test/test.py`): directed corners + 300 random, checks order and cycle count | passed | `test` workflow, commit a698a95 |
+| Real Tiny Tapeout flow: gds, precheck, gl_test, viewer, docs | all passed (after enabling GitHub Pages for `viewer`) | GitHub Actions run 40498704141 |
 
 ## Area (kept separate by PDK)
 | PDK | Tool | Area | Cells | Status |
 |---|---|---|---|---|
 | sky130 hd | Yosys estimate | about 3,970 um2 | 458 | estimate only |
-| IHP SG13G2 | Tiny Tapeout (LibreLane) flow | not reported in the pasted excerpt; utilisation 31.985 % of the placement area | 708 (excluding fill and tap) | from the gds run summary, partial |
+| IHP SG13G2 (cmos5l) | Tiny Tapeout (LibreLane) flow, final | 11,053 um2 standard-cell area (core 28,942 um2, die 31,318 um2) | 796 incl. tap cells, 708 excluding fill and tap | from `final/metrics.json` of the gds run |
 
-The two rows are on different processes and must not be compared directly. The cell count differs partly because the P&R flow adds buffers and hold-fix delay cells that the Yosys-only estimate does not have.
+The two rows are on different processes and must not be compared directly. For reference, the IHP Yosys synthesis step alone reported 8,261 um2 before placement, repair and clock-tree buffers.
 
-### IHP gds run: routing stats and cell usage
-Utilisation 31.985 %, wire length 18,351 um. Linter: 1 warning (text not captured).
+### IHP gds run (commit a698a95, run 40498704141)
+| Metric | Value |
+|---|---|
+| Utilisation | 38.2 % of core (31.985 % in the cell-usage table, which excludes tap cells) |
+| Standard-cell area | 11,053 um2, of which flip-flops 3,674 (75 flops x 48.99), multi-input logic 4,237, timing-repair buffers 2,364 (182 cells), clock buffers 401, inverters 343 |
+| Hold-fix buffers | 115 (`dlygate4sd3`), setup-fix buffers 0 |
+| Wire length | 18,351 um |
+| Setup worst slack | +9.72 ns (slow corner 1.08 V, 125 C), +10.46 ns typical, +10.91 ns fast |
+| Hold worst slack | +0.18 ns (fast corner), +0.40 typical, +0.78 slow |
+| Timing violations | 0 setup, 0 hold, 0 max-slew, 0 max-cap |
+| Power (total, vectorless, typical) | 0.367 mW (internal 0.293, switching 0.072, leakage 0.001) |
+| DRC / LVS / antenna | 0 / 0 / 0 |
+| Lint | 1 warning: unused bits `rs[55:0]` at `src/project.v:81`. Harmless; only the top byte of the shifted result is used |
 
-| Category | Cells | Count |
-|---|---|---|
-| Combo logic (o21ai, a21oi, a22oi, a221oi, a21o) | | 220 |
-| Misc (dlygate4sd3, hold/delay cells) | | 115 |
-| Buffer | buf | 85 |
-| NAND | nand2b, nand2, nand4, nand3, nand3b | 84 |
-| Flip-flops | dfrbpq | 75 |
-| Inverter | inv | 68 |
-| NOR/XNOR | nor2b, nor2, nor3, nor4, xnor2 | 32 |
-| Multiplexer | mux4, mux2 | 17 |
-| AND | and2, and3, and4 | 8 |
-| OR/XOR | xor2, or3 | 4 |
-| Fill (decap) | not counted in the total | 1,776 |
-| **Total (excluding fill and tap)** | | **708** |
+Cell categories (excluding fill and tap): combo logic 220, delay cells 115, buffers 85, NAND 84, flip-flops 75, inverters 68, NOR/XNOR 32, multiplexers 17, AND 8, OR/XOR 4; total 708. Fill: 1,776 decap cells.
 
-Observations: the design fits a 1x1 tile with about two thirds of the area free. 115 delay cells (16 % of the logic) were inserted, most likely by hold fixing. The 75 flip-flops are more than the 73 bits of state in the RTL (a, b, cnt, st, done, gt, cyc), so check the netlist if that matters.
+Observations:
+- The flip-flops are the single largest block (33 % of cell area): 75 flops at about 49 um2 each. The RTL has 73 bits of state (a, b, cnt, st, done, gt, cyc), so 2 extra flops come from the flow or the reset/enable mapping; this was not investigated.
+- 115 hold-fix delay cells and 182 timing-repair buffers in total add 2,364 um2 (21 % of cell area). The wide input paths and the zero-skew-sensitive shift register are the likely cause.
+- The design fits one tile with room to spare (38 % utilisation).
 
 ## Timing
-- sky130 per-field delays (sign 0.26 ns, exponent 1.28 ns, mantissa 3.63 ns) are process-specific and come from the author's model. They are not confirmed by the IHP run.
-- The Actions summary reports whole-design timing only. Only the ordering sign < exponent < mantissa is expected to carry over to IHP.
+- The flow's own constraints met timing in all three corners with positive slack. Setup slack is large because the flow uses a relaxed clock period (20 ns in the template `config.json`) and `timing__setup_r2r__ws` is reported as infinity, so the worst setup path is an input/output path and the slack does **not** give a reliable maximum clock frequency.
+- sky130 per-field delays (sign 0.26 ns, exponent 1.28 ns, mantissa 3.63 ns) are process-specific and come from the author's model. They are not confirmed by the IHP run, which reports whole-design timing only. Only the ordering sign < exponent < mantissa is expected to carry over.
 - IHP per-field figures would need the field-compare modules run separately in that flow.
 
 ## Changes made in this review
@@ -69,10 +70,11 @@ Observations: the design fits a 1x1 tile with about two thirds of the area free.
 - If `Clock(..., unit="ns")` fails in the `test` workflow, change `unit` to `units` (older cocotb).
 - Use the template's own `test/Makefile` and `test/tb.v`, and keep the template's `yaml_version` line in `info.yaml`.
 
-## Actions status
-- `test` (cocotb RTL): passed on commit ccf57ab.
+## Actions status (commit a698a95)
+- `test` (cocotb RTL): passed.
 - `docs`: passed.
-- `gds`: the first run failed only in the `viewer` job (GitHub Pages was not enabled). A re-run is in progress.
+- `gds`: passed, including `precheck`, `gl_test` (gate-level) and `viewer`. The first run's `viewer` failure was only GitHub Pages not being enabled.
 
-## Still to fill in
-Area in um2, timing (slack / worst path) and power from the gds summary; `gl_test` and `precheck` result confirmation.
+## Open items
+- Optional: silence the `rs[55:0]` lint warning.
+- Power is a vectorless estimate; it says nothing about the claimed saving from operand gating.

@@ -29,9 +29,29 @@ Ordering is by FP32 bit pattern with sign-magnitude rules (-0 < +0). NaN is not 
 | PDK | Tool | Area | Cells | Status |
 |---|---|---|---|---|
 | sky130 hd | Yosys estimate | about 3,970 um2 | 458 | estimate only |
-| IHP SG13G2 | Tiny Tapeout (LibreLane) flow | pending | pending | fill in from the Actions gds summary |
+| IHP SG13G2 | Tiny Tapeout (LibreLane) flow | not reported in the pasted excerpt; utilisation 31.985 % of the placement area | 708 (excluding fill and tap) | from the gds run summary, partial |
 
-The two rows are on different processes and must not be compared directly.
+The two rows are on different processes and must not be compared directly. The cell count differs partly because the P&R flow adds buffers and hold-fix delay cells that the Yosys-only estimate does not have.
+
+### IHP gds run: routing stats and cell usage
+Utilisation 31.985 %, wire length 18,351 um. Linter: 1 warning (text not captured).
+
+| Category | Cells | Count |
+|---|---|---|
+| Combo logic (o21ai, a21oi, a22oi, a221oi, a21o) | | 220 |
+| Misc (dlygate4sd3, hold/delay cells) | | 115 |
+| Buffer | buf | 85 |
+| NAND | nand2b, nand2, nand4, nand3, nand3b | 84 |
+| Flip-flops | dfrbpq | 75 |
+| Inverter | inv | 68 |
+| NOR/XNOR | nor2b, nor2, nor3, nor4, xnor2 | 32 |
+| Multiplexer | mux4, mux2 | 17 |
+| AND | and2, and3, and4 | 8 |
+| OR/XOR | xor2, or3 | 4 |
+| Fill (decap) | not counted in the total | 1,776 |
+| **Total (excluding fill and tap)** | | **708** |
+
+Observations: the design fits a 1x1 tile with about two thirds of the area free. 115 delay cells (16 % of the logic) were inserted, most likely by hold fixing. The 75 flip-flops are more than the 73 bits of state in the RTL (a, b, cnt, st, done, gt, cyc), so check the netlist if that matters.
 
 ## Timing
 - sky130 per-field delays (sign 0.26 ns, exponent 1.28 ns, mantissa 3.63 ns) are process-specific and come from the author's model. They are not confirmed by the IHP run.
@@ -49,5 +69,10 @@ The two rows are on different processes and must not be compared directly.
 - If `Clock(..., unit="ns")` fails in the `test` workflow, change `unit` to `units` (older cocotb).
 - Use the template's own `test/Makefile` and `test/tb.v`, and keep the template's `yaml_version` line in `info.yaml`.
 
-## To fill in after the first Actions run
-IHP area, utilisation, timing and power from the gds summary; `test` workflow result.
+## Actions status
+- `test` (cocotb RTL): passed on commit ccf57ab.
+- `docs`: passed.
+- `gds`: the first run failed only in the `viewer` job (GitHub Pages was not enabled). A re-run is in progress.
+
+## Still to fill in
+Area in um2, timing (slack / worst path) and power from the gds summary; `gl_test` and `precheck` result confirmation.
